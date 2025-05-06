@@ -2,112 +2,183 @@ import tkinter as tk
 import tkinter.ttk as ttk
 import sys
 import sqlite3
+from pynput import keyboard
+from tkinterweb import HtmlFrame # Assicurati di averla installata: pip install tkinterweb
+import threading
 
-import dotenv
-import os
+# --- Global Variables ---
+buffer = ""
+root = None
+status_label = None
+keyboard_listener = None
+conn = None
+db_cursor = None
 
-
-
-## Inzializzo il database
-conn = sqlite3.connect('PY-Closer.db')
-
-cursor = conn.cursor()
-# Crea una tabella se non esiste già
-cursor.execute('''
-    CREATE TABLE IF NOT EXISTS codici (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        codice TEXT NOT NULL,
-        stato integer NOT NULL,
-        data_inserimento TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-    )
-''')
-conn.commit()
-
-
+# --- Database Setup & Functions ---
+def init_db():
+    global conn, db_cursor
+    conn = sqlite3.connect('PY-Closer.db')
+    db_cursor = conn.cursor()
+    db_cursor.execute('''
+        CREATE TABLE IF NOT EXISTS codici (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            codice TEXT NOT NULL,
+            stato INTEGER NOT NULL,
+            data_inserimento TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    ''')
+    conn.commit()
 
 def execute_sql_query(code):
-    """
-    Esegui la query SQL fornita.
-    """
-    print(f"Eseguo la query SQL: {code}")
-    ## Query
-    cursor = conn.cursor()
+    global status_label, conn, db_cursor
+    if not conn or not db_cursor:
+        print("Connessione al database non inizializzata.")
+        if status_label:
+            status_label.config(text="Errore: DB non connesso", background="red", fg="white")
+        return False
+
+    print(f"Eseguo la query SQL per il codice: {code}")
     try:
-        cursor.execute("INSERT INTO codici (codice, stato) VALUES (?, ?)", (code, 1))
+        db_cursor.execute("INSERT INTO codici (codice, stato) VALUES (?, ?)", (code, 1))
         conn.commit()
         print("Query eseguita con successo")
+        if status_label:
+            status_label.config(text=f"Codice Inserito: {code}", background="green", fg="white")
+        return True
     except sqlite3.Error as e:
         print(f"Errore durante l'esecuzione della query: {e}")
+        if status_label:
+            status_label.config(text=f"Errore DB: {str(e)[:50]}", background="red", fg="white") # Mostra solo parte dell'errore
+        return False
+
+# --- Barcode Processing ---
+def process_barcode(barcode_data):
+    if root and status_label: # Assicurati che la GUI sia inizializzata
+        print(f"Processo il codice: {barcode_data}")
+        execute_sql_query(barcode_data)
+        # Dopo un breve ritardo, reimposta la status bar se non ci sono stati errori recenti
+        # Questo evita che un messaggio di successo venga sovrascritto troppo rapidamente
+        # da "Pronto per la scansione" se un altro codice viene scansionato subito.
+        # Lo stato di errore persiste finché non c'è un successo.
+        if status_label.cget("background") == "green":
+             root.after(2000, lambda: status_label.config(text="Pronto per la scansione...", background="lightgrey", fg="black"))
 
 
-
-    #pass # Da rimuovere quando si usa un database
-
-def on_submit():
-    """
-    Gestisci l'evento di invio del codice SQL.
-    """
-    code = code_entry.get()
-    if code:
-        execute_sql_query(code)
-        # Pulisco il campo se ho inviato il codice
-        code_entry.delete(0, tk.END)
-        # Coloro la finestra di verde per indicare che è andato tutto bene
-        root.configure(bg='green')
-        
-    else:
-        ## Pulisco il campo a prescindere per essere pronto alla prossima operazione
-        code_entry.delete(0, tk.END)
-        # Coloro la finestra di rosso per indicare che qualcosa è andato storto
-        root.configure(bg='red')
-
-## Definisco la funzione per leggere il numero ordine tramite pyinput; il delimitator eè il tasto enter
-buffer = ""
-
-def on_press(key):
+# --- Keyboard Listener Functions ---
+def on_key_press(key):
     global buffer
     try:
-        if key.char:
+        # Aggiungi il carattere al buffer se è un carattere stampabile
+        if hasattr(key, 'char') and key.char is not None:
             buffer += key.char
-    except AttributeError:
-        if key == keyboard.Key.enter:
-            if buffer:
-                print(f"Codice letto: {buffer}")
-                buffer = ""  # reset del buffer dopo l'Enter
-        elif key == keyboard.Key.esc:
-            print("Uscita dal programma.")
-            return False  # Ferma il listener
-
-# --- GUI Setup ---
-root = tk.Tk()
-root.title("PY-Closer")
-## Ricava le dimensioni dello schermo
-screen_width = root.winfo_screenwidth()
-screen_height = root.winfo_screenheight()
-# Eseui l'applicazione a tutto schermo
-# root.attributes('-fullscreen', True) # mposto fullscreen
-root.configure(bg='lightgrey') # Imposto il colore di sfondo come standard in grigio chiaro
-
-# Centro la finestra
-root.geometry(f"{screen_width}x{screen_height}+0+0") # Fullscreen
-# Posizioni in alto in centro l'area di teso
-#root.geometry(f"400x200+{int((screen_width - 400) / 2)}+{int((screen_height - 200) / 2)}") # Centro la finestra
+    except Exception as e:
+        # Gestisci altri eventuali errori durante la pressione dei tasti
+        print(f"Errore in on_key_press: {e}")
 
 
-# formattazione della cella
-content_frame = ttk.Frame(root)
-content_frame.pack(expand=True)
+def on_key_release(key):
+    global buffer, keyboard_listener, root, status_label
 
-# Inserimento del codice in maschera tramite pistola
-code_entry = ttk.Entry(content_frame, width=30)
-code_entry.pack(side=tk.LEFT, padx=5, pady=10)
+    if key == keyboard.Key.enter:
+        current_buffer = buffer
+        buffer = ""  # Resetta il buffer immediatamente
+        if current_buffer:
+            print(f"Codice letto (Invio): {current_buffer}")
+            if root:
+                 # Esegui l'elaborazione del codice nel thread principale di Tkinter
+                 root.after(0, lambda b=current_buffer: process_barcode(b))
+        elif status_label: # Se il buffer è vuoto ma si preme invio
+            if status_label.cget("background") != "red": # Non sovrascrivere errori
+                status_label.config(text="Pronto per la scansione...", background="lightgrey", fg="black")
 
 
+    elif key == keyboard.Key.esc:
+        print("Uscita dal programma richiesta (Esc).")
+        if root:
+            root.after(0, on_closing) # Chiama la funzione di chiusura dal thread principale
+        return False  # Ferma il listener pynput
 
-## invio del codice al database
-code_entry.bind("<Return>", lambda event: on_submit())
-submit_button = ttk.Button(content_frame, text="Invio", command=on_submit)
-submit_button.pack(side=tk.LEFT, padx=5, pady=10)
+# --- GUI Functions ---
+def on_closing():
+    global keyboard_listener, conn, root
+    print("Chiusura applicazione...")
+    if keyboard_listener:
+        print("Fermo il listener della tastiera...")
+        keyboard_listener.stop()
+    if conn:
+        print("Chiudo la connessione al database...")
+        conn.close()
+    if root:
+        print("Distruggo la finestra principale...")
+        root.quit() # Usa quit() per terminare mainloop in modo pulito
+        root.destroy()
+    print("Applicazione chiusa.")
+    sys.exit()
 
-# --- Start GUI ---
-root.mainloop()
+# --- Main Application Setup ---
+def start_keyboard_listener_thread():
+    global keyboard_listener
+    # Il listener pynput viene eseguito nel suo thread.
+    keyboard_listener = keyboard.Listener(on_press=on_key_press, on_release=on_key_release)
+    keyboard_listener.start()
+    print("Listener tastiera avviato.")
+
+def main():
+    global root, status_label
+
+    init_db() # Inizializza il database
+
+    # --- GUI Setup ---
+    root = tk.Tk()
+    root.title("PY-Closer")
+
+    screen_width = root.winfo_screenwidth()
+    screen_height = root.winfo_screenheight()
+    root.geometry(f"{screen_width}x{screen_height}+0+0")
+    # Per un vero fullscreen senza barre del titolo (può variare per OS):
+    # root.attributes('-fullscreen', True)
+
+    # Status bar in alto
+    status_label = tk.Label(root, text="Pronto per la scansione...", anchor='w',
+                            bg="lightgrey", fg="black", font=("Helvetica", 16),
+                            padx=10, pady=5)
+    status_label.pack(side=tk.TOP, fill=tk.X)
+
+    # WebView
+    # Frame contenitore per la webview per gestire meglio il layout se necessario
+    webview_container = tk.Frame(root)
+    webview_container.pack(side=tk.TOP, fill=tk.BOTH, expand=True)
+
+    try:
+        webview = HtmlFrame(webview_container, messages_enabled=False, vertical_scrollbar=True)
+        webview.pack(fill=tk.BOTH, expand=True)
+        webview.load_website("https://francescozanti.dev")
+    except Exception as e:
+        print(f"Errore durante l'inizializzazione della WebView: {e}")
+        error_label = tk.Label(webview_container,
+                               text=f"Impossibile caricare la WebView: {e}\nAssicurati che tkinterweb sia installato e funzioni correttamente.",
+                               fg="red", justify=tk.LEFT)
+        error_label.pack(fill=tk.BOTH, expand=True)
+
+
+    # Gestione chiusura finestra
+    root.protocol("WM_DELETE_WINDOW", on_closing)
+
+    # Avvia il listener della tastiera
+    start_keyboard_listener_thread()
+
+    # --- Start GUI ---
+    try:
+        root.mainloop()
+    except KeyboardInterrupt: # Gestisce Ctrl+C nel terminale se la GUI non ha il focus
+        print("Interruzione da tastiera (Ctrl+C) ricevuta, chiusura...")
+        on_closing()
+    finally:
+        # Assicura una pulizia finale se mainloop esce inaspettatamente
+        if keyboard_listener and keyboard_listener.is_alive():
+            keyboard_listener.stop()
+        if conn:
+            conn.close()
+
+if __name__ == "__main__":
+    main()
