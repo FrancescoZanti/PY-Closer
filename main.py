@@ -5,11 +5,8 @@ import sqlite3
 
 import dotenv
 import os
-from evdev import InputDevice, InputEvent, ecodes
 
-dotenv.load_dotenv()
-# Carica le variabili d'ambiente
-device_x = os.path.join('/dev/input/event', os.getenv('device_x'))
+
 
 ## Inzializzo il database
 conn = sqlite3.connect('PY-Closer.db')
@@ -57,40 +54,29 @@ def on_submit():
         code_entry.delete(0, tk.END)
         # Coloro la finestra di verde per indicare che è andato tutto bene
         root.configure(bg='green')
-        root.after(200, lambda: root.configure(bg='lightgrey'))
         
     else:
         ## Pulisco il campo a prescindere per essere pronto alla prossima operazione
         code_entry.delete(0, tk.END)
         # Coloro la finestra di rosso per indicare che qualcosa è andato storto
         root.configure(bg='red')
-        root.after(200, lambda: root.configure(bg='lightgrey'))
-        print("Per piacere inserisci un codice")
 
+## Definisco la funzione per leggere il numero ordine tramite pyinput; il delimitator eè il tasto enter
+buffer = ""
 
-## Definisco una funzione che mi permetta di leggere continnuamente da /dev/events
-def read_events():
-    """
-    Leggi continuamente gli eventi da /dev/input/eventX.
-    """
-    # Apri il dispositivo di input
-    device = InputDevice(device_x)  # Sostituisci con il tuo dispositivo
-    # Inizializza il dispositivo
-    device.grab()
-    # Inizializza il ciclo di lettura degli eventi: se viene inserito un codice aggiungo il record a database
-    while True:
-        # Leggi gli eventi dal dispositivo
-        events = device.read()
-        for event in events:
-            if event.type == ecodes.EV_KEY and event.value == 1:  # Se è un tasto premuto
-                key_code = ecodes.KEY[event.code]
-                print(f"Tasto premuto: {key_code}")
-                # Qui puoi implementare la logica per gestire il codice inserito
-                # Ad esempio, puoi chiamare la funzione on_submit() quando un codice è completo
-                if key_code == 'ENTER':
-                     on_submit()
-
-    #pass  # Da implementare in base alla tua logica di lettura degli eventi
+def on_press(key):
+    global buffer
+    try:
+        if key.char:
+            buffer += key.char
+    except AttributeError:
+        if key == keyboard.Key.enter:
+            if buffer:
+                print(f"Codice letto: {buffer}")
+                buffer = ""  # reset del buffer dopo l'Enter
+        elif key == keyboard.Key.esc:
+            print("Uscita dal programma.")
+            return False  # Ferma il listener
 
 # --- GUI Setup ---
 root = tk.Tk()
