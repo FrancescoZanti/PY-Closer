@@ -5,8 +5,17 @@ import sqlite3
 from pynput import keyboard
 from tkinterweb import HtmlFrame # Assicurati di averla installata: pip install tkinterweb
 import threading
+import os
+from dotenv import load_dotenv
 
-# --- Global Variables ---
+### Variabili da file .env
+load_dotenv()
+website_url = os.environ.get("website_url")
+### Fine delle variabili da file .env
+
+print(website_url)
+
+# ---  Variabili globali ---
 buffer = ""
 root = None
 status_label = None
@@ -152,7 +161,7 @@ def main():
     try:
         webview = HtmlFrame(webview_container, messages_enabled=False, vertical_scrollbar=True)
         webview.pack(fill=tk.BOTH, expand=True)
-        webview.load_website("https://francescozanti.dev")
+        webview.load_website(website_url)  # Carica un sito web di esempio
     except Exception as e:
         print(f"Errore durante l'inizializzazione della WebView: {e}")
         error_label = tk.Label(webview_container,
