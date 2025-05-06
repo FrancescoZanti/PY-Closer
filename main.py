@@ -23,7 +23,7 @@ keyboard_listener = None
 conn = None
 db_cursor = None
 
-# --- Database Setup & Functions ---
+# --- Setup DB---
 def init_db():
     global conn, db_cursor
     conn = sqlite3.connect('PY-Closer.db')
@@ -60,7 +60,7 @@ def execute_sql_query(code):
             status_label.config(text=f"Errore DB: {str(e)[:50]}", background="red", fg="white") # Mostra solo parte dell'errore
         return False
 
-# --- Barcode Processing ---
+# --- Lettura ed elaborazione barcode ---
 def process_barcode(barcode_data):
     if root and status_label: # Assicurati che la GUI sia inizializzata
         print(f"Processo il codice: {barcode_data}")
@@ -73,7 +73,7 @@ def process_barcode(barcode_data):
              root.after(2000, lambda: status_label.config(text="Pronto per la scansione...", background="lightgrey", fg="black"))
 
 
-# --- Keyboard Listener Functions ---
+# --- Monitoraggio tastiera ---
 def on_key_press(key):
     global buffer
     try:
@@ -107,7 +107,7 @@ def on_key_release(key):
             root.after(0, on_closing) # Chiama la funzione di chiusura dal thread principale
         return False  # Ferma il listener pynput
 
-# --- GUI Functions ---
+# --- GUI ---
 def on_closing():
     global keyboard_listener, conn, root
     print("Chiusura applicazione...")
@@ -124,7 +124,7 @@ def on_closing():
     print("Applicazione chiusa.")
     sys.exit()
 
-# --- Main Application Setup ---
+# --- Applicazione principale ---
 def start_keyboard_listener_thread():
     global keyboard_listener
     # Il listener pynput viene eseguito nel suo thread.
@@ -161,7 +161,7 @@ def main():
     try:
         webview = HtmlFrame(webview_container, messages_enabled=False, vertical_scrollbar=True)
         webview.pack(fill=tk.BOTH, expand=True)
-        webview.load_website(website_url)  # Carica un sito web di esempio
+        webview.load_website(website_url)  # Carica il sito web specificato nel file .env
     except Exception as e:
         print(f"Errore durante l'inizializzazione della WebView: {e}")
         error_label = tk.Label(webview_container,
